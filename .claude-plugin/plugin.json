@@ -1,0 +1,9 @@
+{
+  "name": "command-guard",
+  "version": "1.0.0",
+  "description": "Configurable guardrails for Claude Code - block commands, protect files, enforce workflows",
+  "author": { "name": "golergka" },
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
