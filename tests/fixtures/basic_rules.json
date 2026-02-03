@@ -1,0 +1,44 @@
+{
+  "rules": [
+    {
+      "match": "command",
+      "pattern": "git\\s+reset\\s+--hard",
+      "severity": "error",
+      "message": "git reset --hard can lose uncommitted work"
+    },
+    {
+      "match": "command",
+      "pattern": "git\\s+push.*--force",
+      "severity": "error",
+      "message": "Force push can overwrite remote history"
+    },
+    {
+      "match": "command",
+      "pattern": "rm\\s+-rf",
+      "severity": "warning",
+      "message": "Reminder: rm -rf is permanent"
+    },
+    {
+      "match": "file_path",
+      "pattern": "\\.env$",
+      "severity": "error",
+      "message": "Cannot modify .env files directly"
+    },
+    {
+      "match": "tool_name",
+      "pattern": "^mcp__dangerous__",
+      "severity": "error",
+      "message": "Dangerous MCP tool blocked"
+    },
+    {
+      "match": "tool_name",
+      "pattern": "^mcp__external__",
+      "severity": "warning",
+      "message": "External MCP tool used - verify authorization"
+    }
+  ],
+  "safePatterns": [
+    "git\\s+checkout\\s+-b\\s",
+    "rm\\s+-rf\\s+node_modules"
+  ]
+}

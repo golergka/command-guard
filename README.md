@@ -214,8 +214,36 @@ The plugin includes a `/command-guard` skill for viewing and editing configurati
 
 The plugin registers hooks for:
 
-- **PreToolUse** (Bash, Edit, Write): Checks for `error` severity rules and blocks if matched
+- **PreToolUse** (Bash, Edit, Write, MCP tools): Checks for `error` severity rules and blocks if matched
 - **PostToolUse** (all tools): Checks for `warning` severity rules and shows reminders
+
+## Development
+
+### Setup
+
+The repository includes `.claude/settings.json` which installs the plugin from the local directory for development:
+
+```json
+{
+  "plugins": ["./"]
+}
+```
+
+### Running Tests
+
+Tests use pytest and can be run without any Claude Code or LLM calls:
+
+```bash
+pytest tests/ -v
+```
+
+The tests cover:
+- Unit tests for individual functions (rule matching, command parsing, etc.)
+- Integration tests that run the script as a subprocess with sample configs
+
+### Test Fixtures
+
+Test fixtures are in `tests/fixtures/`. The `basic_rules.json` file contains sample rules for testing.
 
 ## License
 
