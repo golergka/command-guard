@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "command-guard",
-      "source": ".",
+      "source": "./",
       "description": "Configurable guardrails for Claude Code - block commands, protect files, enforce workflows",
       "version": "1.0.0",
       "author": {
