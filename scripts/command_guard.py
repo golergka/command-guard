@@ -84,7 +84,8 @@ def strip_quoted_strings(command: str) -> str:
     Handles single quotes, double quotes, and heredocs.
     """
     # Remove heredoc content: <<'EOF' ... EOF or <<"EOF" ... EOF or <<EOF ... EOF
-    command = re.sub(r"<<['\"]?(\w+)['\"]?.*?\1", "", command, flags=re.DOTALL)
+    # The delimiter must appear at the start of a line (or after tabs for <<-)
+    command = re.sub(r"<<-?['\"]?(\w+)['\"]?.*?\n\1(?=\s|$)", "", command, flags=re.DOTALL)
     # Remove $'...' strings (ANSI-C quoting)
     command = re.sub(r"\$'[^']*'", '""', command)
     # Remove single-quoted strings
