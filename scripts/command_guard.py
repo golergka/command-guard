@@ -231,6 +231,11 @@ def main():
                     if matched:
                         block_with_error(file_path, message)
 
+            # Check tool_name for errors (applies to all tools including MCP)
+            matched, message = check_rules(tool_name, "tool_name", "error", rules)
+            if matched:
+                block_with_error(tool_name, message)
+
             sys.exit(0)
 
         elif hook_event == "PostToolUse":
