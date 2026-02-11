@@ -244,7 +244,3 @@ The tests cover:
 ### Test Fixtures
 
 Test fixtures are in `tests/fixtures/`. The `basic_rules.json` file contains sample rules for testing.
-
-## License
-
-MIT
