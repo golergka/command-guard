@@ -8,11 +8,14 @@ Configurable guardrails for Claude Code - block commands, protect files, enforce
 
 ## Installation
 
+Add the GitHub repo as a plugin marketplace, then install:
+
 ```bash
-claude plugins install /path/to/command-guard
+claude plugin marketplace add golergka/command-guard
+claude plugin install command-guard@golergka-command-guard
 ```
 
-Or for testing:
+For local development/testing:
 
 ```bash
 claude --plugin-dir /path/to/command-guard
