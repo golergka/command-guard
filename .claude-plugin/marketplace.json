@@ -12,6 +12,15 @@
       "author": {
         "name": "golergka"
       }
+    },
+    {
+      "name": "commit-guard",
+      "source": "./plugins/commit-guard/",
+      "description": "Prevents Claude from finishing with uncommitted changes",
+      "version": "1.0.0",
+      "author": {
+        "name": "golergka"
+      }
     }
   ]
 }

@@ -21,6 +21,19 @@ For local development/testing:
 claude --plugin-dir /path/to/command-guard
 ```
 
+## Plugins
+
+This repository contains multiple independent plugins. Install only what you need:
+
+| Plugin | Description | Install command |
+| ------ | ----------- | --------------- |
+| `command-guard` | Configurable rules to block or warn about tool usage | `claude plugin install command-guard@golergka-command-guard` |
+| `commit-guard` | Prevents Claude from finishing with uncommitted changes | `claude plugin install commit-guard@golergka-command-guard` |
+
+---
+
+# command-guard
+
 ## Configuration
 
 Create `.claude/command-guard.json` in your project root:
@@ -220,15 +233,27 @@ The plugin registers hooks for:
 - **PreToolUse** (Bash, Edit, Write, MCP tools): Checks for `error` severity rules and blocks if matched
 - **PostToolUse** (all tools): Checks for `warning` severity rules and shows reminders
 
+---
+
+# commit-guard
+
+Prevents Claude from finishing a session with uncommitted changes. Uses a **Stop hook** — when Claude tries to end the conversation, the hook checks `git status` and blocks if there are uncommitted changes.
+
+## Behavior
+
+- If the working tree is dirty, Claude is re-prompted to commit before finishing
+- Claude can acknowledge the situation by including `UNCOMMITTED_OK` in its message (e.g. when it only did research or the user told it not to commit)
+- Does nothing outside of git repositories
+
 ## Development
 
 ### Setup
 
-The repository includes `.claude/settings.json` which installs the plugin from the local directory for development:
+The repository includes `.claude/settings.json` which installs both plugins from the local directory for development:
 
 ```json
 {
-  "plugins": ["./"]
+  "plugins": ["./", "./plugins/commit-guard/"]
 }
 ```
 

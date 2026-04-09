@@ -1,0 +1,7 @@
+{
+  "name": "commit-guard",
+  "version": "1.0.0",
+  "description": "Prevents Claude from finishing with uncommitted changes",
+  "author": { "name": "golergka" },
+  "hooks": "./hooks/hooks.json"
+}
