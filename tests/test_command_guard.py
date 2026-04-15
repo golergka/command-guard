@@ -193,36 +193,46 @@ class TestCheckRules:
         ]
 
     def test_matches_command_error(self, sample_rules):
-        matched, message = check_rules("git reset --hard", "command", "error", sample_rules)
+        matched, message, rule = check_rules(
+            "git reset --hard", "command", "error", sample_rules
+        )
         assert matched
         assert "git reset --hard" in message
+        assert rule is not None
 
     def test_matches_command_warning(self, sample_rules):
-        matched, message = check_rules("rm -rf /tmp", "command", "warning", sample_rules)
+        matched, message, _ = check_rules("rm -rf /tmp", "command", "warning", sample_rules)
         assert matched
         assert "rm -rf" in message
 
     def test_no_match_different_severity(self, sample_rules):
         # git reset --hard is error, not warning
-        matched, _ = check_rules("git reset --hard", "command", "warning", sample_rules)
+        matched, _, rule = check_rules(
+            "git reset --hard", "command", "warning", sample_rules
+        )
         assert not matched
+        assert rule is None
 
     def test_matches_file_path(self, sample_rules):
-        matched, message = check_rules("/path/to/.env", "file_path", "error", sample_rules)
+        matched, message, _ = check_rules(
+            "/path/to/.env", "file_path", "error", sample_rules
+        )
         assert matched
         assert ".env" in message
 
     def test_matches_tool_name(self, sample_rules):
-        matched, message = check_rules("mcp__dangerous__tool", "tool_name", "error", sample_rules)
+        matched, message, _ = check_rules(
+            "mcp__dangerous__tool", "tool_name", "error", sample_rules
+        )
         assert matched
         assert "Dangerous MCP" in message
 
     def test_no_match_when_value_doesnt_match(self, sample_rules):
-        matched, _ = check_rules("git status", "command", "error", sample_rules)
+        matched, _, _ = check_rules("git status", "command", "error", sample_rules)
         assert not matched
 
     def test_case_insensitive_by_default(self, sample_rules):
-        matched, _ = check_rules("GIT RESET --HARD", "command", "error", sample_rules)
+        matched, _, _ = check_rules("GIT RESET --HARD", "command", "error", sample_rules)
         assert matched
 
 
@@ -519,3 +529,162 @@ class TestScriptIntegration:
         finally:
             config_file.unlink(missing_ok=True)
             config_dir.rmdir()
+
+
+# =============================================================================
+# Warning throttle tests
+# =============================================================================
+
+
+class TestWarningThrottle:
+    """Tests that warnings are throttled per (cwd, session, rule)."""
+
+    @pytest.fixture
+    def script_path(self):
+        return str(Path(__file__).parent.parent / "scripts" / "command_guard.py")
+
+    @pytest.fixture
+    def project_with_warning_rule(self, tmp_path):
+        """A project dir with a single warning rule on `echo`."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        config = {
+            "rules": [
+                {
+                    "match": "command",
+                    "pattern": r"\becho\b",
+                    "severity": "warning",
+                    "message": "echo warning",
+                }
+            ]
+        }
+        (claude_dir / "command-guard.json").write_text(json.dumps(config))
+        return tmp_path
+
+    def _run(self, script_path, project_dir, throttle_dir, hook_input):
+        env = os.environ.copy()
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+        env["COMMAND_GUARD_THROTTLE_DIR"] = str(throttle_dir)
+        return subprocess.run(
+            [sys.executable, script_path],
+            input=json.dumps(hook_input),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def _hook(self, session_id="s1", cwd="/work/a", command="echo hi"):
+        return {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "session_id": session_id,
+            "cwd": cwd,
+        }
+
+    def test_only_first_and_eleventh_emit(
+        self, script_path, project_with_warning_rule, tmp_path
+    ):
+        throttle_dir = tmp_path / "throttle"
+        emitted = []
+        for i in range(1, 13):
+            result = self._run(
+                script_path, project_with_warning_rule, throttle_dir, self._hook()
+            )
+            assert result.returncode == 0, result.stderr
+            if result.stdout.strip():
+                emitted.append(i)
+        assert emitted == [1, 11]
+
+    def test_different_session_has_independent_counter(
+        self, script_path, project_with_warning_rule, tmp_path
+    ):
+        throttle_dir = tmp_path / "throttle"
+        for _ in range(5):
+            self._run(
+                script_path,
+                project_with_warning_rule,
+                throttle_dir,
+                self._hook(session_id="s1"),
+            )
+        result = self._run(
+            script_path,
+            project_with_warning_rule,
+            throttle_dir,
+            self._hook(session_id="s2"),
+        )
+        assert result.stdout.strip(), "fresh session should emit"
+
+    def test_different_cwd_has_independent_counter(
+        self, script_path, project_with_warning_rule, tmp_path
+    ):
+        throttle_dir = tmp_path / "throttle"
+        for _ in range(5):
+            self._run(
+                script_path,
+                project_with_warning_rule,
+                throttle_dir,
+                self._hook(cwd="/work/a"),
+            )
+        result = self._run(
+            script_path,
+            project_with_warning_rule,
+            throttle_dir,
+            self._hook(cwd="/work/b"),
+        )
+        assert result.stdout.strip(), "different cwd should emit"
+
+    def test_different_rules_do_not_share_counter(self, script_path, tmp_path):
+        throttle_dir = tmp_path / "throttle"
+        project_dir = tmp_path / "project"
+        claude_dir = project_dir / ".claude"
+        claude_dir.mkdir(parents=True)
+        config = {
+            "rules": [
+                {
+                    "match": "command",
+                    "pattern": r"\becho\b",
+                    "severity": "warning",
+                    "message": "echo warning",
+                },
+                {
+                    "match": "command",
+                    "pattern": r"\bls\b",
+                    "severity": "warning",
+                    "message": "ls warning",
+                },
+            ]
+        }
+        (claude_dir / "command-guard.json").write_text(json.dumps(config))
+
+        for _ in range(5):
+            self._run(
+                script_path, project_dir, throttle_dir, self._hook(command="echo hi")
+            )
+        result = self._run(
+            script_path, project_dir, throttle_dir, self._hook(command="ls")
+        )
+        assert result.stdout.strip()
+        assert "ls warning" in json.loads(result.stdout).get("reason", "")
+
+    def test_throttle_one_emits_every_call(self, script_path, tmp_path):
+        throttle_dir = tmp_path / "throttle"
+        project_dir = tmp_path / "project"
+        claude_dir = project_dir / ".claude"
+        claude_dir.mkdir(parents=True)
+        config = {
+            "warningThrottle": 1,
+            "rules": [
+                {
+                    "match": "command",
+                    "pattern": r"\becho\b",
+                    "severity": "warning",
+                    "message": "echo warning",
+                }
+            ],
+        }
+        (claude_dir / "command-guard.json").write_text(json.dumps(config))
+
+        for _ in range(5):
+            result = self._run(script_path, project_dir, throttle_dir, self._hook())
+            assert result.stdout.strip(), "throttle=1 must always emit"

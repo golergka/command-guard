@@ -112,6 +112,19 @@ To override, add a comment: # OVERRIDE: <reason>
 
 Shows a reminder after the tool completes (PostToolUse). Doesn't block execution.
 
+Warnings are throttled per `(working directory, Claude session, rule)` — by default, each rule surfaces on hit #1, #11, #21, … for a given session and folder. Intermediate hits are silently suppressed so a noisy rule doesn't flood the conversation. Errors are never throttled.
+
+Override the interval with the top-level `warningThrottle` field in `.claude/command-guard.json` (default `10`, set to `1` to disable throttling):
+
+```json
+{
+  "warningThrottle": 10,
+  "rules": [ ... ]
+}
+```
+
+Counter state lives in `~/.claude/command-guard/throttle/<session_id>.json` and is pruned automatically once the directory grows past ~50 sessions.
+
 ## Safe Patterns
 
 The `safePatterns` array contains regex patterns that bypass blocking rules. This is useful for allowing safe variants of otherwise dangerous commands:

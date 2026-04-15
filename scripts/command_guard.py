@@ -22,6 +22,7 @@ Rule match types:
 - "tool_name": Matches tool name (for MCP tools)
 """
 
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,12 @@ COMMAND_SUBSTITUTION_PATTERN = r"\$\([^)]+\)|`[^`]+`"
 # Override mechanism - allows bypassing blocks with explicit reasoning
 OVERRIDE_PATTERN = r"#\s*OVERRIDE:\s*(.+)$"
 MIN_OVERRIDE_REASON_LENGTH = 5
+
+# Warning throttle: per (cwd, session, rule), emit at most every Nth hit
+THROTTLE_DIR_ENV = "COMMAND_GUARD_THROTTLE_DIR"
+DEFAULT_THROTTLE_N = 10
+MAX_THROTTLE_FILES = 50
+THROTTLE_CLEANUP_KEEP = 25
 
 
 def load_config() -> Optional[Dict[str, Any]]:
@@ -138,10 +145,10 @@ def is_safe_pattern(command: str, safe_patterns: List[str]) -> bool:
 
 def check_rules(
     value: str, match_type: str, severity: str, rules: List[Dict[str, Any]]
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """
     Check value against rules of given match_type and severity.
-    Returns (matched, message).
+    Returns (matched, message, matched_rule).
     Patterns run case-insensitive by default; set "case_sensitive": True for exact matching.
     """
     for rule in rules:
@@ -154,9 +161,9 @@ def check_rules(
 
         flags = 0 if rule.get("case_sensitive", False) else re.IGNORECASE
         if re.search(pattern, value, flags):
-            return True, rule.get("message", "Rule matched")
+            return True, rule.get("message", "Rule matched"), rule
 
-    return False, ""
+    return False, "", None
 
 
 def block_with_error(context: str, message: str):
@@ -170,8 +177,100 @@ def block_with_error(context: str, message: str):
     sys.exit(2)
 
 
-def show_warning(message: str):
-    """Show warning (exit 0 with JSON)."""
+def _throttle_dir() -> str:
+    override = os.environ.get(THROTTLE_DIR_ENV)
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".claude", "command-guard", "throttle")
+
+
+def _throttle_path(session_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    return os.path.join(_throttle_dir(), f"{safe}.json")
+
+
+def _rule_fingerprint(rule: Dict[str, Any]) -> str:
+    key = f"{rule.get('match', '')}|{rule.get('pattern', '')}|{rule.get('message', '')}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _cwd_hash(cwd: str) -> str:
+    return hashlib.sha256(cwd.encode("utf-8")).hexdigest()[:16]
+
+
+def _cleanup_throttle_dir(dir_path: str) -> None:
+    try:
+        entries = [
+            os.path.join(dir_path, f)
+            for f in os.listdir(dir_path)
+            if f.endswith(".json")
+        ]
+        if len(entries) <= MAX_THROTTLE_FILES:
+            return
+        entries.sort(key=lambda p: os.path.getmtime(p))
+        for p in entries[: len(entries) - THROTTLE_CLEANUP_KEEP]:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _should_emit_warning(
+    session_id: str, cwd: str, rule_fingerprint: str, throttle_n: int
+) -> bool:
+    """Increment the throttle counter and return whether to emit this warning."""
+    if throttle_n <= 1:
+        return True
+    if not session_id:
+        # No session to key off — fail open and emit.
+        return True
+
+    dir_path = _throttle_dir()
+    try:
+        os.makedirs(dir_path, exist_ok=True)
+    except OSError:
+        return True
+
+    path = _throttle_path(session_id)
+    data: Dict[str, int] = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = {k: int(v) for k, v in loaded.items() if isinstance(v, int)}
+        except (json.JSONDecodeError, IOError, ValueError):
+            data = {}
+
+    key = f"{_cwd_hash(cwd)}:{rule_fingerprint}"
+    counter = data.get(key, 0) + 1
+    data[key] = counter
+
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except IOError:
+        pass
+
+    _cleanup_throttle_dir(dir_path)
+
+    return counter % throttle_n == 1
+
+
+def show_warning(
+    message: str,
+    session_id: str = "",
+    cwd: str = "",
+    rule_fingerprint: str = "",
+    throttle_n: int = DEFAULT_THROTTLE_N,
+):
+    """Show warning (exit 0 with JSON), subject to per-(cwd, session, rule) throttle."""
+    if rule_fingerprint and not _should_emit_warning(
+        session_id, cwd, rule_fingerprint, throttle_n
+    ):
+        sys.exit(0)
     print(json.dumps({"decision": "block", "reason": message}))
     sys.exit(0)
 
@@ -185,6 +284,12 @@ def main():
 
         rules = config.get("rules", [])
         safe_patterns = config.get("safePatterns", [])
+        try:
+            throttle_n = int(config.get("warningThrottle", DEFAULT_THROTTLE_N))
+        except (TypeError, ValueError):
+            throttle_n = DEFAULT_THROTTLE_N
+        if throttle_n < 1:
+            throttle_n = 1
 
         # If no rules defined, allow everything
         if not rules:
@@ -194,6 +299,8 @@ def main():
         hook_event = data.get("hook_event_name", "PreToolUse")
         tool_name = data.get("tool_name", "")
         tool_input = data.get("tool_input", {}) or {}
+        session_id = data.get("session_id", "") or ""
+        cwd = data.get("cwd", "") or ""
 
         if not isinstance(tool_input, dict):
             tool_input = {}
@@ -219,7 +326,7 @@ def main():
                         continue
 
                     # Check errors
-                    matched, message = check_rules(
+                    matched, message, _ = check_rules(
                         strip_quoted_strings(sub_command), "command", "error", rules
                     )
                     if matched:
@@ -228,12 +335,12 @@ def main():
             elif tool_name in ("Edit", "Write"):
                 file_path = tool_input.get("file_path", "")
                 if file_path:
-                    matched, message = check_rules(file_path, "file_path", "error", rules)
+                    matched, message, _ = check_rules(file_path, "file_path", "error", rules)
                     if matched:
                         block_with_error(file_path, message)
 
             # Check tool_name for errors (applies to all tools including MCP)
-            matched, message = check_rules(tool_name, "tool_name", "error", rules)
+            matched, message, _ = check_rules(tool_name, "tool_name", "error", rules)
             if matched:
                 block_with_error(tool_name, message)
 
@@ -245,24 +352,46 @@ def main():
             if tool_name == "Bash":
                 command = tool_input.get("command", "")
                 if isinstance(command, str) and command:
-                    matched, message = check_rules(
+                    matched, message, rule = check_rules(
                         strip_quoted_strings(command), "command", "warning", rules
                     )
                     if matched:
-                        show_warning(message)
+                        show_warning(
+                            message,
+                            session_id=session_id,
+                            cwd=cwd,
+                            rule_fingerprint=_rule_fingerprint(rule) if rule else "",
+                            throttle_n=throttle_n,
+                        )
 
             elif tool_name in ("Edit", "Write"):
                 file_path = tool_input.get("file_path", "")
                 if file_path:
-                    matched, message = check_rules(file_path, "file_path", "warning", rules)
+                    matched, message, rule = check_rules(
+                        file_path, "file_path", "warning", rules
+                    )
                     if matched:
-                        show_warning(message)
+                        show_warning(
+                            message,
+                            session_id=session_id,
+                            cwd=cwd,
+                            rule_fingerprint=_rule_fingerprint(rule) if rule else "",
+                            throttle_n=throttle_n,
+                        )
 
             else:
                 # MCP tools and other tools
-                matched, message = check_rules(tool_name, "tool_name", "warning", rules)
+                matched, message, rule = check_rules(
+                    tool_name, "tool_name", "warning", rules
+                )
                 if matched:
-                    show_warning(message)
+                    show_warning(
+                        message,
+                        session_id=session_id,
+                        cwd=cwd,
+                        rule_fingerprint=_rule_fingerprint(rule) if rule else "",
+                        throttle_n=throttle_n,
+                    )
 
             sys.exit(0)
 
