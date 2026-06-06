@@ -14,7 +14,9 @@ from typing import Any, Dict
 import pytest
 
 # Add the scripts directory to the path so we can import the module
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(
+    0, str(Path(__file__).parent.parent / "plugins" / "command-guard" / "scripts")
+)
 
 from command_guard import (
     check_rules,
@@ -271,7 +273,13 @@ class TestScriptIntegration:
 
     @pytest.fixture
     def script_path(self):
-        return str(Path(__file__).parent.parent / "scripts" / "command_guard.py")
+        return str(
+            Path(__file__).parent.parent
+            / "plugins"
+            / "command-guard"
+            / "scripts"
+            / "command_guard.py"
+        )
 
     @pytest.fixture
     def fixtures_dir(self):
@@ -634,7 +642,13 @@ class TestWarningThrottle:
 
     @pytest.fixture
     def script_path(self):
-        return str(Path(__file__).parent.parent / "scripts" / "command_guard.py")
+        return str(
+            Path(__file__).parent.parent
+            / "plugins"
+            / "command-guard"
+            / "scripts"
+            / "command_guard.py"
+        )
 
     @pytest.fixture
     def project_with_warning_rule(self, tmp_path):

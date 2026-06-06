@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "command-guard",
-      "source": { "source": "local", "path": "." },
+      "source": { "source": "local", "path": "./plugins/command-guard/" },
       "description": "Configurable guardrails for Codex — block commands, protect files, enforce workflows"
     },
     {
