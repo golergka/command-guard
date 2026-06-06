@@ -530,6 +530,99 @@ class TestScriptIntegration:
             config_file.unlink(missing_ok=True)
             config_dir.rmdir()
 
+    # ------------------------------------------------------------------
+    # Codex payload-shape parity
+    # ------------------------------------------------------------------
+
+    def run_script_codex(
+        self, script_path: str, hook_input: Dict[str, Any], project_dir: str
+    ) -> subprocess.CompletedProcess:
+        """Run the script under Codex env conventions."""
+        env = os.environ.copy()
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env["CODEX_PROJECT_DIR"] = project_dir
+        return subprocess.run(
+            [sys.executable, script_path],
+            input=json.dumps(hook_input),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def _write_basic_config(self, fixtures_dir) -> tuple:
+        project_dir = str(fixtures_dir.parent)
+        config_dir = fixtures_dir.parent / ".claude"
+        config_dir.mkdir(exist_ok=True)
+        config_file = config_dir / "command-guard.json"
+        with open(fixtures_dir / "basic_rules.json") as f:
+            config = json.load(f)
+        with open(config_file, "w") as f:
+            json.dump(config, f)
+        return project_dir, config_file, config_dir
+
+    def test_codex_exec_command_blocks_via_cmd_field(self, script_path, fixtures_dir):
+        """Codex payload: tool_name suffix exec_command, tool_input.cmd → blocked."""
+        project_dir, config_file, config_dir = self._write_basic_config(fixtures_dir)
+        try:
+            hook_input = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "shell.exec_command",
+                "tool_input": {"cmd": "git reset --hard"},
+            }
+            result = self.run_script_codex(script_path, hook_input, project_dir)
+            assert result.returncode == 2
+            assert "BLOCKED" in result.stderr
+        finally:
+            config_file.unlink(missing_ok=True)
+            config_dir.rmdir()
+
+    def test_codex_exec_command_blocks_via_command_string(self, script_path, fixtures_dir):
+        """Codex payload: tool_input.command_string fallback works."""
+        project_dir, config_file, config_dir = self._write_basic_config(fixtures_dir)
+        try:
+            hook_input = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "local_shell.exec_command",
+                "tool_input": {"command_string": "git push --force origin main"},
+            }
+            result = self.run_script_codex(script_path, hook_input, project_dir)
+            assert result.returncode == 2
+            assert "BLOCKED" in result.stderr
+        finally:
+            config_file.unlink(missing_ok=True)
+            config_dir.rmdir()
+
+    def test_codex_override_accepted(self, script_path, fixtures_dir):
+        """Codex payload: # OVERRIDE comment lifts the block."""
+        project_dir, config_file, config_dir = self._write_basic_config(fixtures_dir)
+        try:
+            hook_input = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "shell.exec_command",
+                "tool_input": {"cmd": "git reset --hard  # OVERRIDE: cleaning up state"},
+            }
+            result = self.run_script_codex(script_path, hook_input, project_dir)
+            assert result.returncode == 0
+            assert "OVERRIDE accepted" in result.stderr
+        finally:
+            config_file.unlink(missing_ok=True)
+            config_dir.rmdir()
+
+    def test_codex_allowed_command_passes(self, script_path, fixtures_dir):
+        """Codex payload: harmless command exits 0."""
+        project_dir, config_file, config_dir = self._write_basic_config(fixtures_dir)
+        try:
+            hook_input = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "shell.exec_command",
+                "tool_input": {"cmd": "git status"},
+            }
+            result = self.run_script_codex(script_path, hook_input, project_dir)
+            assert result.returncode == 0
+        finally:
+            config_file.unlink(missing_ok=True)
+            config_dir.rmdir()
+
 
 # =============================================================================
 # Warning throttle tests

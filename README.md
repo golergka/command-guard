@@ -1,14 +1,14 @@
 # command-guard
 
-Configurable guardrails for Claude Code - block commands, protect files, enforce workflows.
+Configurable guardrails for Claude Code and Codex CLI - block commands, protect files, enforce workflows.
 
 ## Overview
 
-`command-guard` is a Claude Code plugin that provides configurable guardrails for blocking or warning about tool usage. It ships with **no default rules** - all configuration comes from your project's config file.
+`command-guard` is a plugin for both Claude Code and Codex CLI. It provides configurable guardrails for blocking or warning about tool usage and ships with **no default rules** — all configuration comes from your project's `.claude/command-guard.json` (the same file is read under both runtimes). The override mechanism, safe patterns, and warning throttle all work identically.
 
 ## Installation
 
-Add the GitHub repo as a plugin marketplace, then install:
+### Claude Code
 
 ```bash
 claude plugin marketplace add golergka/command-guard
@@ -20,6 +20,15 @@ For local development/testing:
 ```bash
 claude --plugin-dir /path/to/command-guard
 ```
+
+### Codex CLI
+
+```bash
+codex plugin marketplace add golergka/command-guard
+codex plugin add command-guard@golergka-command-guard
+```
+
+Codex auto-discovers `hooks.json` at the plugin root, so the same guard fires for `*exec_command` tool calls. The plugin reads either `CLAUDE_PROJECT_DIR` or `CODEX_PROJECT_DIR` to find `.claude/command-guard.json`, so config lives in the same place either way.
 
 ## Plugins
 

@@ -1,0 +1,15 @@
+{
+  "name": "golergka-command-guard",
+  "plugins": [
+    {
+      "name": "command-guard",
+      "source": { "source": "local", "path": "./" },
+      "description": "Configurable guardrails for Codex — block commands, protect files, enforce workflows"
+    },
+    {
+      "name": "commit-guard",
+      "source": { "source": "local", "path": "./plugins/commit-guard/" },
+      "description": "Prevents Codex from finishing with uncommitted changes"
+    }
+  ]
+}

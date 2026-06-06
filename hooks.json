@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*exec_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/command_guard.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*exec_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/command_guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Command Guard Plugin for Claude Code
+Command Guard Plugin for Claude Code and Codex CLI
 
 Provides configurable guardrails for blocking/warning about tool usage.
 No default rules - all configuration comes from project config file.
 
 Configuration file: ${CLAUDE_PROJECT_DIR}/.claude/command-guard.json
+  (Codex sets CODEX_PROJECT_DIR instead of CLAUDE_PROJECT_DIR; either is accepted.)
 
 Override mechanism:
 Any blocked command can be overridden by adding a comment with explicit reasoning:
@@ -20,6 +21,11 @@ Rule match types:
 - "command": Matches Bash command content
 - "file_path": Matches Edit/Write file paths
 - "tool_name": Matches tool name (for MCP tools)
+
+Cross-runtime payload notes:
+- Claude Code sends tool_name="Bash" with tool_input.command.
+- Codex sends tool_name suffix "exec_command" (e.g. "shell.exec_command") with
+  tool_input.cmd (or tool_input.command_string). Both shapes are handled.
 """
 
 import hashlib
@@ -46,12 +52,17 @@ MAX_THROTTLE_FILES = 50
 THROTTLE_CLEANUP_KEEP = 25
 
 
+def _project_dir() -> str:
+    """Resolve the project root. Claude sets CLAUDE_PROJECT_DIR; Codex sets CODEX_PROJECT_DIR."""
+    return os.environ.get("CLAUDE_PROJECT_DIR") or os.environ.get("CODEX_PROJECT_DIR", "")
+
+
 def load_config() -> Optional[Dict[str, Any]]:
     """
     Load configuration from project's .claude/command-guard.json.
     Returns None if config doesn't exist (no rules = allow everything).
     """
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    project_dir = _project_dir()
     if not project_dir:
         return None
 
@@ -65,6 +76,32 @@ def load_config() -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, IOError) as e:
         print(f"Warning: Failed to load command-guard config: {e}", file=sys.stderr)
         return None
+
+
+def _is_bash_tool(tool_name: str) -> bool:
+    """Return True if the tool is a shell exec under either runtime.
+
+    Claude uses tool_name "Bash". Codex uses a suffix "exec_command" (e.g.
+    "shell.exec_command", "local_shell.exec_command").
+    """
+    if not tool_name:
+        return False
+    if tool_name == "Bash":
+        return True
+    return tool_name.endswith("exec_command")
+
+
+def _extract_command(tool_input: Dict[str, Any]) -> str:
+    """Pull the shell command out of the hook payload.
+
+    Claude uses tool_input.command. Codex uses tool_input.cmd or
+    tool_input.command_string. Returns "" if none are present.
+    """
+    for key in ("command", "cmd", "command_string"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
 
 
 def has_override(command: str) -> bool:
@@ -308,9 +345,9 @@ def main():
         if hook_event == "PreToolUse":
             # Check for ERRORS only (exit 2 to block)
 
-            if tool_name == "Bash":
-                command = tool_input.get("command", "")
-                if not isinstance(command, str) or not command:
+            if _is_bash_tool(tool_name):
+                command = _extract_command(tool_input)
+                if not command:
                     sys.exit(0)
 
                 # Check override first (applies to entire compound command)
@@ -349,9 +386,9 @@ def main():
         elif hook_event == "PostToolUse":
             # Check for WARNINGS only (exit 0 with JSON to show reminder)
 
-            if tool_name == "Bash":
-                command = tool_input.get("command", "")
-                if isinstance(command, str) and command:
+            if _is_bash_tool(tool_name):
+                command = _extract_command(tool_input)
+                if command:
                     matched, message, rule = check_rules(
                         strip_quoted_strings(command), "command", "warning", rules
                     )
