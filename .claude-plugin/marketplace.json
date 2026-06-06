@@ -8,7 +8,7 @@
       "name": "command-guard",
       "source": "./plugins/command-guard/",
       "description": "Configurable guardrails for Claude Code and Codex CLI - block commands, protect files, enforce workflows",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "golergka"
       }
@@ -17,7 +17,7 @@
       "name": "commit-guard",
       "source": "./plugins/commit-guard/",
       "description": "Prevents Claude from finishing with uncommitted changes",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "golergka"
       }
